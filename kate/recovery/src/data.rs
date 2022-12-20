@@ -1,6 +1,6 @@
 use std::{collections::HashMap, convert::TryInto};
 
-use crate::matrix::Position;
+use crate::matrix::{Dimensions, Position, RowIndex};
 
 /// Position and data of a cell in extended matrix
 #[derive(Default, Debug, Clone)]
@@ -36,7 +36,7 @@ impl Cell {
 
 /// Merges cells data per row.
 /// Cells are sorted before merge.
-pub fn rows(cells: &[Cell]) -> Vec<(u32, Vec<u8>)> {
+pub fn rows(dimensions: &Dimensions, cells: &[&Cell]) -> Vec<(RowIndex, Vec<u8>)> {
 	let mut sorted_cells = cells.to_vec();
 
 	sorted_cells
@@ -44,11 +44,12 @@ pub fn rows(cells: &[Cell]) -> Vec<(u32, Vec<u8>)> {
 
 	let mut rows = HashMap::new();
 	for cell in sorted_cells {
-		rows.entry(cell.position.row)
+		rows.entry(RowIndex(cell.position.row))
 			.or_insert_with(Vec::default)
 			.extend(cell.data());
 	}
 
+	rows.retain(|_, row| row.len() != dimensions.row_byte_size());
 	rows.into_iter().collect::<Vec<(_, _)>>()
 }
 
@@ -65,7 +66,11 @@ impl From<Cell> for DataCell {
 mod tests {
 	use std::convert::TryInto;
 
-	use crate::{data::rows, data::Cell, matrix::Position};
+	use crate::{
+		data::rows,
+		data::Cell,
+		matrix::{Dimensions, Position},
+	};
 
 	fn cell(position: Position, content: [u8; 80]) -> Cell {
 		Cell { position, content }
@@ -77,19 +82,20 @@ mod tests {
 
 	#[test]
 	fn rows_ok() {
+		let dimensions = Dimensions::new(2, 1).unwrap();
 		fn content(data: [u8; 32]) -> [u8; 80] {
 			[&[0u8; 48], &data[..]].concat().try_into().unwrap()
 		}
 
 		let cells = [
-			cell(position(1, 1), content([3; 32])),
-			cell(position(1, 0), content([2; 32])),
-			cell(position(0, 0), content([0; 32])),
-			cell(position(0, 1), content([1; 32])),
+			&cell(position(1, 1), content([3; 32])),
+			&cell(position(1, 0), content([2; 32])),
+			&cell(position(0, 0), content([0; 32])),
+			&cell(position(0, 1), content([1; 32])),
 		];
 
-		let mut rows = rows(&cells);
-		rows.sort_by_key(|&(key, _)| key);
+		let mut rows = rows(&dimensions, &cells);
+		rows.sort_by_key(|(key, _)| key.0);
 
 		let expected = [
 			[[0u8; 32], [1u8; 32]].concat(),
@@ -98,8 +104,10 @@ mod tests {
 
 		for i in 0..1 {
 			let (row_index, row) = &rows[i];
-			assert_eq!(*row_index, 0);
+			assert_eq!(row_index.0, 0);
 			assert_eq!(*row, expected[i]);
 		}
+
+		// TODO: Update row test with incomplete row case
 	}
 }
